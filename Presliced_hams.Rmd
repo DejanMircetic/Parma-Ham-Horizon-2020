@@ -1,0 +1,194 @@
+---
+title: "Presliced hams"
+author: "Marinko Maslaric & Dejan Mircetic"
+date: "11/03/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.pos = 'H')
+library(readxl)
+library(tidyverse)
+library(tsibble)
+library(lubridate)
+library(fable)
+library(thief)
+```
+
+<!-- ## Structuring the data -->
+
+```{r import}
+sliced <- read_excel("1. Draft/Draft Data structure/Data 2 februar 2022/PRESLICED FILE.xls")
+```
+
+Data has `r dim(sliced)[1]` entries, from which not all are reliable and need to be checked again.
+
+```{r seting_up, include=FALSE}
+
+sliced <- sliced %>%
+  filter(!is.na(DATE))
+
+colnames(sliced) <- c("date","doc","product_ID","product_type","curing","pices","kg","value","pos")
+
+sliced %>% select(date,product_type,pos,curing,pices,kg,value)
+
+base <- sliced  %>% 
+  select(date,product_type,pos,curing,pices,kg,value) %>% 
+  mutate(date=ymd(date), curing=as.character(curing), kg=as.numeric(kg), value=as.numeric(value)) 
+
+agregiranje <- base %>% 
+  duplicates(key = c(pos,product_type, curing), index=date) %>%
+  group_by(date, pos,product_type, curing) %>% 
+  summarise(kg = sum(kg), pices=sum(pices), value=sum(value))
+```
+
+
+```{r duplicates}
+## Checking for duplicates
+# Logicki vektori a i b za izbacivanje iz baze dupliranih podataka
+a <- base %>% 
+  are_duplicated(key = c(pos,product_type, curing), index=date)
+
+b <- base %>% 
+  are_duplicated(key = c(pos,product_type, curing), index=date,from_last = TRUE)
+
+#bind_rows(base[!c(a|b),],agregiranje) %>% 
+#  duplicates(key = c(pos,product_type, curing), index=date)
+
+#Kalemljenje      
+baza <- bind_rows(base[!c(a|b),],agregiranje)
+```
+
+
+```{r}
+## Joinig the data & NA values
+#Kalemljenje  
+baza <- bind_rows(base[!c(a|b),],agregiranje)
+
+baza <- baza %>%
+  as_tsibble(key =  c(pos,product_type, curing), index=date) %>%
+  fill_gaps(kg = 0L, pices = 0L, value = 0L)
+
+#baza %>%
+#      filter(is.na(product_type))
+```
+
+Demonstrating the demand for one customer:
+
+```{r fig1}
+baza %>%
+  filter(pos=="70.101.893 SOGEGROSS" & curing=="18") %>%
+  autoplot(value)+
+  ggtitle("Fig 1. Visualisation of presliced hams SOGEGROSS customer")
+```
+
+## Total demand of presliced hams (all customers)
+
+Fig. 2 represents the total number of presliced hams which were sold/delivered to the market from 2015.
+```{r, out.width="100%"}
+## Creating the grouped data base
+data_agg <- baza %>%
+  aggregate_key(pos * product_type* curing, Hams = sum(kg), Pices = sum(pices), Value = sum(value))
+
+total_level <- data_agg %>%
+  filter(is_aggregated(pos) & is_aggregated(product_type) & is_aggregated(curing)) #Za tekst
+
+maxx <- which.max(total_level[,"Pices"]$Pices)
+datum <- total_level[,"date"]$date[maxx]
+
+data_agg %>%
+  filter(is_aggregated(pos) & is_aggregated(product_type) & is_aggregated(curing)) %>%
+  autoplot(Pices) +
+  xlab("Days")+
+  geom_vline(aes(xintercept=as.Date("2020-02-21"), colour="#990000")) +#Corona start! First lock down
+  scale_color_hue(labels = c("Lockdown in Italy"))+
+  ggtitle("Fig 2. Total consumption")
+```
+
+
+There is a notable change in the hams demand from the start of the Corona pandemic. The first lockdown in Italy was **2020-02-21**, after which demand for presliced hams erupted and reached a historical maximum. The demand was constantly trending, reaching the highest peak on **`r datum`**, with **`r format(max(total_level[,"Pices"]),scientific=FALSE)`** sliced pieces sold and generated revenue of **`r format(max(total_level[,"Value"]),scientific=FALSE)`** EUR in one day.
+
+```{r, eval=FALSE}
+library(fpp3)
+total_level %>% select(Hams) %>%
+  gg_season(labels = "both")
+
+
+total_level %>% select(Hams) %>%
+  model(
+    STL(Hams ~ trend(window = 7) +
+          season(window = "periodic"),
+        robust = TRUE)) %>%
+  components() %>%
+  autoplot()
+
+```
+
+The daily demand shows highly volatile behavior, therefore aggregation of the demand through different time horizons (weekly, monthly, etc) demonstrate a clear galloping demand trend.
+
+
+```{r, echo=FALSE}
+df <- total_level %>% select(date,Hams, Pices, Value)
+df <- as_tibble(df)
+
+#head(df)
+
+df$week <- floor_date(df$date, "week")
+df$month <- floor_date(df$date, "month")
+
+sedmica <- df %>%
+  group_by(week) %>%
+  summarize(Consumption = sum(Hams)) 
+
+#Weekly_demand <- ts(sedmica$Consumption,frequency = 52, start = 2015)
+#plot(Weekly_demand)
+
+tsw <- sedmica %>% 
+  mutate(month=yearweek(week)) %>%
+  as_tsibble(index=week)
+
+tsw %>% autoplot(Consumption)+
+  xlab("Weeks")
+
+```
+
+Similar behavior is observed on the monthly and other upper levels as well.
+
+```{r}
+mjesec <- df %>%
+  group_by(month) %>%
+  summarize(Consumption = sum(Hams)) 
+
+Monthly_demand <- ts(mjesec$Consumption,frequency = 12, start = c(2015,1))
+#plot(Monthly_demand)
+#plot(forecast(Monthly_demand))
+
+plot(tsaggregates(Monthly_demand, align = "end"), main="Demand through time horizonts")
+```
+
+Initial estimations for the future forecasts are presented in the next figure and still demonstrate strong consumption of the presliced ham on the market.
+
+```{r}
+tsm <- mjesec %>% 
+  mutate(month=yearmonth(month)) %>%
+  as_tsibble(index=month)
+
+#autoplot(tsm,Consumption)
+
+fc <- tsm %>%
+  model(
+     demo_pessimistic= ARIMA(Consumption),
+    #demo_optimistic=ETS(Consumption)
+  ) %>%
+  forecast(h = 24)
+
+fc %>%
+  autoplot(tsm)+
+  ggtitle("Total consumption & forecasts")+
+  xlab("Months")
+
+#Kad budes pices prognozirao dobija bolju sliku nego hams
+```
+
