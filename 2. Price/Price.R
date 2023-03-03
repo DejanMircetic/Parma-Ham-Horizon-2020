@@ -16,3 +16,21 @@ plot(p2)
 ts.plot(window(p2, start=c(2017,1)),p) #jako su slične ali su izgleda smanjene za neki porez.
 
 # Zdravko da vidi sa Gordjom da nadju ove sto nedostaju!
+
+purchase <- read.table("~/2023/1. Capanna/Parma-Ham-Horizon-2020/2. Price/purchase.txt", quote="\"", comment.char="")
+View(purchase)
+purchase <- ts(purchase,frequency = 12, start=c(2012,1))
+plot(purchase)
+
+library(fpp2)
+
+ggseasonplot(purchase)
+
+
+
+pro <- forecast(purchase, h=24)
+plot(pro, ylab="Price in euro")
+
+pro$mean
+
+
