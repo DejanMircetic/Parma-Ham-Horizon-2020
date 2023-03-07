@@ -10,4 +10,4 @@ Lead researches:
 * PhD [Dejan Mircetic](https://www.linkedin.com/feed/update/urn:li:activity:6993199240374050816/)
 * PhD [Marinko Maslaric](https://www.linkedin.com/in/marinko-maslaric-6058576/)
 
-Goal: design fully automated AI food factory and enable agile production & logistic system.
+Goal: design automated AI food factory and enable agile production & logistic system.
